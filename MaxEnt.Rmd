@@ -1,0 +1,109 @@
+---
+title: "MaxEnt"
+author: "Helen Evangelina"
+date: "14/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(raster)
+library(rgdal)
+library(sf)
+library(tidyverse)
+library(fasterize)
+library(dismo)
+library(rgeos)
+```
+
+```{r}
+# download the maxent.jar and place it in the desired folder (need to be accessible by the dismo) 
+utils::download.file(url = "https://raw.githubusercontent.com/mrmaxent/Maxent/master/ArchivedReleases/3.3.3k/maxent.jar", 
+    destfile = paste0(system.file("java", package = "dismo"), 
+        "/maxent.jar"), mode = "wb")
+```
+
+
+```{r}
+load("VICfire/save.RData")
+```
+
+```{r}
+# set up projection parameter for use throughout script
+projection <- "+proj=longlat +datum=WGS84"
+
+# set up extent parameter 
+ext <- extent(141, 150, -39, -34)
+```
+
+```{r}
+file <- read.csv("training.csv")
+
+file2 <- file %>%
+  select(month, day, )
+  
+fires_tr$FOR_TYPE <- factor(fires_tr$FOR_TYPE)
+
+fires_tr$FOR_CAT <- factor(fires_tr$FOR_CAT)
+
+fires_tr$FOR_CODE <- factor(fires_tr$FOR_CODE)
+
+fires_tr2 <- fires_tr %>%
+  select(-FIRE_START)
+```
+
+```{r}
+glimpse(file)
+```
+
+
+```{r}
+x <- raster(xmn = 141,
+            xmx = 150, 
+            ymn = -39,
+            ymx = -34,
+            res = 0.1, 
+            crs = "+proj=longlat +datum=WGS84")
+
+fire <- rasterize(file_count[, c('lon', 'lat')], x, file_count[, 'count'])
+
+projectRaster(file, crs = projection)
+```
+
+
+# Raster dataset
+```{r}
+file <- read.csv("training.csv")
+```
+
+```{r}
+# occurrence dataset
+file_count <- file %>%
+  group_by(lon,lat) %>%
+  summarise(count = n())
+
+x <- raster(xmn = 141,
+            xmx = 150, 
+            ymn = -39,
+            ymx = -34,
+            res = 0.1, 
+            crs = "+proj=longlat +datum=WGS84")
+
+fire <- rasterize(file_count[, c('lon', 'lat')], x, file_count[, 'count'])
+
+
+plot(fire)
+
+```
+
+
+
+```{r}
+gridtemp
+```
+
+
+```{r}
+raster("training.csv")
+```
+

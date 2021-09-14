@@ -1,0 +1,24 @@
+---
+title: "test2"
+author: "Helen Evangelina"
+date: "09/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ozmaps)
+library(sf)
+```
+
+```{r}
+oz_states <- ozmaps::ozmap_states
+vic_map <- oz_states[2,]
+```
+
+```{r}
+ggplot(oz_states) +
+  geom_sf() +
+  coord_sf()
+```
+

@@ -1,0 +1,172 @@
+---
+title: "fire-risk"
+author: "Helen Evangelina"
+date: "08/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(ggthemes)
+```
+
+```{r}
+training <- read.csv("training.csv")
+```
+
+```{r}
+training <- training %>%
+    filter(!CAUSE %in% c("BURNING BUILDING",
+                         "WASTE DISPOSAL, INDUSTRIAL, SAWMILL, TIP",
+                         "WASTE DISPOSAL, DOMESTIC",
+                         "BURNING VEHICLE, MACHINE",
+                         "BURNING BUILDING")) %>%
+    filter(new_cause != "other") %>%
+    filter(new_cause != "relight")
+  
+  
+  training <- select(training, -c(EVENTID:FIRE_NUM), -id, -CAUSE, -FOREST, -FOR_CODE, -FOR_CAT)
+  
+  training <- mutate(training,
+                     year = factor(year(FIRE_START)),
+                     month = factor(month(FIRE_START), levels = c(10,11,12,1,2,3)),
+                     day = factor(day(FIRE_START), levels = c(1:31)),
+                     wod = factor(wday(FIRE_START), levels = c(1:7)))
+  
+  training <- filter(training, month %in% c(10,11,12,1,2,3))
+  
+  training <- na.omit(training)
+  
+  training <- mutate(training, new_cause = ifelse(new_cause == "accidental_human", "accident", new_cause)) %>%
+    mutate(new_cause = ifelse(new_cause == "burning_off_human", "burning_off", new_cause)) %>%
+    mutate(new_cause = factor(new_cause)) %>%
+    mutate(FOR_TYPE = factor(FOR_TYPE))
+  
+  training <- na.omit(training)
+  
+  training <- mutate(training,
+                     log_dist_cfa = log(dist_cfa),
+                     log_dist_camp = log(dist_camp),
+                     log_dist_road = log(dist_road),
+                     COVER = factor(COVER),
+                     HEIGHT = factor(HEIGHT))
+  
+  training <- rename(training, cause = new_cause)
+  training <- mutate(training,
+                     cause = fct_relevel(cause,
+                                         "lightning",
+                                         "accident",
+                                         "arson",
+                                         "burning_off"))
+  
+  training <- na.omit(training)
+  
+  training <- select(training, -dist_road, -dist_cfa, -dist_camp, -FIRE_START)
+```
+
+```{r}
+library(sf)
+library(rnaturalearth)
+au_map <- ne_states(country = 'Australia', returnclass = 'sf')
+vic_map <- au_map[7,]
+```
+
+```{r}
+lat <- seq(34,39, 0.2)
+lat <- -lat
+lon <- seq(141,150,0.2)
+
+grids <- expand.grid(lat, lon)
+
+
+rect <- function(x){
+
+  # left top
+  lat1 <- x[1]
+  lon1 <- x[2]
+
+  # right top
+  lat2 <- x[1]
+  lon2 <- x[2]+0.2
+
+  # right bottom
+  lat3 <- x[1]-0.2
+  lon3 <- x[2]+0.2
+
+  # left bottom
+  lat4 <- x[1]-0.2
+  lon4 <- x[2]
+
+  st_sfc(st_polygon(list(matrix(c(lon1,lat1,lon2,lat2,lon3,lat3,lon4,lat4,lon1,lat1), ncol =2, byrow = TRUE))))
+
+}
+
+rect_list <- apply(grids[1:nrow(grids),],1,rect)
+
+rect_list <- do.call(c, rect_list)
+glimpse(rect_list)
+```
+
+
+```{r}
+vic_map$geometry
+```
+
+
+```{r}
+#rect_list <- st_set_crs(rect_list, 4326)
+
+st_crs(rect_list) <- 4326
+```
+
+```{r}
+indexes <- st_intersects(vic_map$geometry, rect_list)[[1]]
+rect_list <- rect_list[indexes]
+
+training2 <- st_as_sf(training, coords = c("lon", "lat"), crs = 4326)
+
+indexes <- st_intersects(rect_list, training2)
+
+training$rect <- 0
+for (i in 1:length(indexes)){
+  training$rect[indexes[[i]]] <- i
+}
+
+rect_list <- as.data.frame(rect_list)
+rect_list <- mutate(rect_list, rect = 1:nrow(rect_list), month = 10)
+
+rect_list <- rect_list %>%
+  bind_rows(mutate(rect_list, month = 11)) %>%
+  bind_rows(mutate(rect_list, month = 12)) %>%
+  bind_rows(mutate(rect_list, month = 1)) %>%
+  bind_rows(mutate(rect_list, month = 2)) %>%
+  bind_rows(mutate(rect_list, month = 3)) %>%
+  mutate(month = factor(month, levels = c("10", "11", "12", "1", "2", "3")))
+
+temp <- training %>%
+  group_by(rect, year, month) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  group_by(rect, month) %>%
+  summarise(count = n())
+
+rect_list <- temp %>%
+  right_join(rect_list, by = c("rect", "month")) %>%
+  mutate(count = ifelse(is.na(count), 0, count))
+
+ggplot() +
+  geom_sf(data = rect_list, aes(geometry = geometry, fill = count/19), col = NA) +
+  geom_sf(data = vic_map, fill = NA) +
+  facet_wrap(~fct_recode(month, "Oct" = "10", "Nov" = "11", "Dec" = "12", "Jan" = "1", "Feb" = "2", "Mar" = "3")) +
+  theme_map() +
+  theme(legend.position = "bottom") +
+  scale_fill_distiller(palette = "Reds", direction = 1, limits = c(0,1), na.value = "grey") +
+  labs(fill = "Relative frequency")
+
+rect_list_st <- rect_list
+rect_list
+```
+`
+

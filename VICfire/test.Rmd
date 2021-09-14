@@ -1,0 +1,123 @@
+---
+title: "Test"
+author: "Helen Evangelina"
+date: "07/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(shiny)
+library(dplyr)
+library(leaflet)
+library(readr)
+library(KernSmooth)
+library(shinyWidgets)
+library(plotly)
+library(sp)
+library(mapview)
+library(leafem)
+library(rgdal)
+library(maptools)
+library(raster)
+library(DT)
+library(htmlwidgets)
+
+```
+
+```{r}
+load("save.RData")
+```
+
+```{r}
+prediction %>%
+  group_by(new_cause) %>%
+  ggplot(aes(x = new_cause,
+             y = aws_m24)) +
+  geom_boxplot()
+```
+they are different for each cause. 
+
+```{r}
+# returns the set of grid points in each coordinate direction, and the matrix of density estimates over the mesh included by the grid points. the kernel is the standard bivariate normal density.
+d0d <- bkde2D(cbind(mydata$lon,mydata$lat),bandwidth=c(.0045, .0068), gridsize = c(50,50))
+```
+```{r}
+r10a
+```
+
+```{r}
+KernelDensityRaster<-raster(list(x=d0d$x1 ,y=d0d$x2 ,z = r10a))
+
+KernelDensityRaster 
+```
+```{r}
+ KernelDensityRaster@data@values[which(KernelDensityRaster@data@values < 0.07)] <- NA
+
+```
+
+```{r}
+ leaflet() %>%
+                addProviderTiles("CartoDB")  %>%
+                setView(lng= 144.7852, lat = -36.3913 , zoom = 6.3)%>%
+                addLegend(pal = palRaster, values = c(1,0),
+                          title = "Fire Probability")%>%
+                addRasterImage(KernelDensityRaster,colors = palRaster,opacity = .4)
+```
+```{r}
+seq(from = 1, to = 40000, by= 1000)
+```
+
+
+
+```{r}
+vic_raster <- raster(
+  nrows = 50,
+  ncols = 50,
+  
+  xmn = 140.9617,
+  xmx = 149.9763,
+  ymn = -39.13396,
+  ymx = -33.99605,
+  
+  crs = 4326,
+  
+  vals = seq(from = 1, to = 2500000, by = 1000)
+  
+)
+```
+
+```{r}
+library(sf)
+library(sp)
+library(rnaturalearth)
+au_map <- ne_states(country = 'Australia', returnclass = 'sf')
+vic_map <- au_map[7,]
+```
+
+```{r}
+vic_map %>%
+  ggplot() +
+  geom_sf()
+```
+
+
+```{r}
+raster::values(vic_raster) <- stats::runif(raster::ncell(vic_raster))
+
+vic_map_sp <- as(vic_map, Class = "Spatial")
+```
+
+```{r}
+vic_raster_crop <- vic_raster %>% 
+  raster::mask(mask = vic_map_sp)
+
+vic_raster_crop
+```
+
+```{r}
+vic_map %>%
+  ggplot() +
+  geom_sf()
+```
+

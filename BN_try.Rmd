@@ -1,0 +1,51 @@
+---
+title: "BN_try"
+author: "Helen Evangelina"
+date: "08/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(bnlearn)
+```
+
+```{r}
+data(coronary)
+```
+
+```{r}
+bn_df <- data.frame(coronary)
+
+res <- hc(bn_df)
+res
+
+plot(res)
+```
+
+```{r}
+res$arcs <- res$arcs[-which((res$arcs[,'from'] == "M..Work" & res$arcs[,'to'] == "Family")),]
+```
+
+```{r}
+plot(res)
+```
+
+```{r}
+fittedbn <- bn.fit(res, data = bn_df)
+fittedbn
+```
+
+```{r}
+print(fittedbn$Proteins)
+```
+
+proteins is conditioned on M.Work and Smoking 
+
+```{r}
+cpquery(fittedbn, event = (Proteins=="140" ) )
+```
+
+https://www.r-bloggers.com/2015/02/bayesian-network-in-r-introduction/
+inference.

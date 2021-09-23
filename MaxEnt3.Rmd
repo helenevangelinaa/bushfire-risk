@@ -1,0 +1,151 @@
+---
+title: "Maxent3"
+author: "Helen Evangelina"
+date: "15/09/2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(raster)
+library(rgdal)
+library(sf)
+library(tidyverse)
+library(fasterize)
+library(dismo)
+library(rgeos)
+library(lubridate)
+library(leaflet)
+```
+
+```{r}
+# download the maxent.jar and place it in the desired folder (need to be accessible by the dismo) 
+utils::download.file(url = "https://raw.githubusercontent.com/mrmaxent/Maxent/master/ArchivedReleases/3.3.3k/maxent.jar", 
+    destfile = paste0(system.file("java", package = "dismo"), 
+        "/maxent.jar"), mode = "wb")
+```
+```{r}
+# set up projection parameter for use throughout script
+projection <- "+proj=longlat +datum=WGS84"
+
+# set up extent parameter 
+ext <- extent(141, 150, -39, -34)
+```
+
+```{r}
+data <- read.csv("data/predict_x.csv")
+
+data <- select(data, -id, -FOREST, -FOR_CODE, -FOR_CAT)
+  
+  data <- mutate(data,
+                     year = factor(year(time)),
+                     month = factor(month(time), levels = c(10,11,12,1,2,3)),
+                     day = factor(day(time), levels = c(1:31)),
+                     wod = factor(wday(time), levels = c(1:7)))
+  
+  data <- na.omit(data)
+  
+data <- data%>%
+    mutate(FOR_TYPE = factor(FOR_TYPE))
+
+  data <- mutate(data,
+                     log_dist_cfa = log(dist_cfa),
+                     log_dist_camp = log(dist_camp),
+                     log_dist_road = log(dist_road),
+                     COVER = factor(COVER),
+                     HEIGHT = factor(HEIGHT))
+  
+  
+  data <- select(data, -dist_road, -dist_cfa, -dist_camp, -time)
+```
+
+# January
+```{r}
+data_jan <- data %>%
+  filter(month == 1)
+
+data_jan_count <- data_jan %>%
+  group_by(lat, lon) %>%
+  summarise(n = n())
+
+jan_lonlat  <- data_jan_count %>%
+  select(-n)
+
+jan_lonlat2  <- data_jan_count %>%
+  select(-n)
+```
+
+```{r}
+coordinates(jan_lonlat) <- ~ lon + lat
+plot(jan_lonlat)
+```
+
+```{r}
+jan_buff <- buffer(jan_lonlat, width = 8000)
+
+
+plot(jan_buff)
+```
+
+#env data
+```{r}
+x <- raster(xmn = 141,
+            xmx = 150, 
+            ymn = -39,
+            ymx = -34,
+            res = 0.2, 
+            crs = "+proj=longlat +datum=WGS84")
+
+fire_jan <- rasterize(data_jan[, c('lon', 'lat')], x, data_jan[, c('arf360')])
+
+# fire_projected_jan <- projectRaster(data_jan)
+# 
+# fire_extended_jan <- extend(fire_projected_jan, ext, value = NA)
+
+plot(fire_jan)
+```
+
+## Study area
+```{r}
+# crop will crop the raster layer into the extent of my studyArea 
+studyArea <- crop(fire_jan, extent(jan_buff))
+
+studyArea <- mask(studyArea, jan_buff)
+plot(studyArea)
+```
+
+# background points
+```{r}
+# selecting bg points from the new buffered study area
+set.seed(2021)
+bg <- sampleRandom(x = studyArea,
+                   size = 300,
+                   na.rm = T,
+                   sp = T)
+plot(studyArea[[1]])
+plot(bg, add = T)
+plot(fire_jan, add = T, col = "red")
+```
+
+```{r}
+set.seed(2021)
+selected <- sample(1:nrow(jan_lonlat2), nrow(jan_lonlat2) * 0.75)
+
+jan_train <- jan_lonlat2[selected,]
+jan_test <- jan_lonlat2[-selected, ]
+```
+
+```{r}
+jan_train
+```
+
+
+```{r}
+p <- extract(fire_jan, jan_train)
+
+p_test <- extract(fire_jan, jan_test)
+
+a <- extract(fire_jan, bg)
+```
+

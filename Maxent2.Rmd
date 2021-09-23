@@ -1,0 +1,316 @@
+---
+title: "Maxent2"
+author: "Helen Evangelina"
+date: "15/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(raster)
+library(rgdal)
+library(sf)
+library(tidyverse)
+library(fasterize)
+library(dismo)
+library(rgeos)
+library(lubridate)
+library(leaflet)
+```
+
+```{r}
+# download the maxent.jar and place it in the desired folder (need to be accessible by the dismo) 
+utils::download.file(url = "https://raw.githubusercontent.com/mrmaxent/Maxent/master/ArchivedReleases/3.3.3k/maxent.jar", 
+    destfile = paste0(system.file("java", package = "dismo"), 
+        "/maxent.jar"), mode = "wb")
+```
+
+
+```{r}
+load("VICfire/save.RData")
+```
+
+```{r}
+# set up projection parameter for use throughout script
+projection <- "+proj=longlat +datum=WGS84"
+
+# set up extent parameter 
+ext <- extent(141, 150, -39, -34)
+```
+
+```{r}
+training <- read.csv("training.csv")
+
+training <- training %>%
+    filter(!CAUSE %in% c("BURNING BUILDING",
+                         "WASTE DISPOSAL, INDUSTRIAL, SAWMILL, TIP",
+                         "WASTE DISPOSAL, DOMESTIC",
+                         "BURNING VEHICLE, MACHINE",
+                         "BURNING BUILDING")) %>%
+    filter(new_cause != "other") %>%
+    filter(new_cause != "relight")
+  
+  
+  training <- select(training, -c(EVENTID:FIRE_NUM), -id, -CAUSE, -FOREST, -FOR_CODE, -FOR_CAT)
+  
+  training <- mutate(training,
+                     year = factor(year(FIRE_START)),
+                     month = factor(month(FIRE_START), levels = c(10,11,12,1,2,3)),
+                     day = factor(day(FIRE_START), levels = c(1:31)),
+                     wod = factor(wday(FIRE_START), levels = c(1:7)))
+  
+  training <- filter(training, month %in% c(10,11,12,1,2,3))
+  
+  training <- na.omit(training)
+  
+  training <- mutate(training, new_cause = ifelse(new_cause == "accidental_human", "accident", new_cause)) %>%
+    mutate(new_cause = ifelse(new_cause == "burning_off_human", "burning_off", new_cause)) %>%
+    mutate(new_cause = factor(new_cause)) %>%
+    mutate(FOR_TYPE = factor(FOR_TYPE))
+  
+  training <- na.omit(training)
+  
+  training <- mutate(training,
+                     log_dist_cfa = log(dist_cfa),
+                     log_dist_camp = log(dist_camp),
+                     log_dist_road = log(dist_road),
+                     COVER = factor(COVER),
+                     HEIGHT = factor(HEIGHT))
+  
+  training <- rename(training, cause = new_cause)
+  training <- mutate(training,
+                     cause = fct_relevel(cause,
+                                         "lightning",
+                                         "accident",
+                                         "arson",
+                                         "burning_off"))
+  
+  training <- na.omit(training)
+  
+  training <- select(training, -dist_road, -dist_cfa, -dist_camp, -FIRE_START, -cause)
+```
+
+# January
+```{r}
+training_jan <- training %>%
+  filter(month == 1)
+
+training_jan_count <- training_jan %>%
+  group_by(lat, lon) %>%
+  summarise(n = n())
+```
+
+```{r}
+x <- raster(xmn = 141,
+            xmx = 150, 
+            ymn = -39,
+            ymx = -34,
+            res = 0.2, 
+            crs = "+proj=longlat +datum=WGS84")
+
+fire_jan <- rasterize(training_jan[, c('lon', 'lat')], x, training_jan[, c('arf360')])
+
+fire_projected_jan <- projectRaster(fire_jan, crs = projection)
+
+fire_extended_jan <- extend(fire_projected_jan, ext, value = NA)
+
+plot(fire_extended_jan)
+```
+
+```{r}
+fire_extended_jan
+```
+
+```{r}
+# keep 20% of the data for testing
+jan_latlon <- cbind.data.frame(training_jan_count$lon, training_jan_count$lat)
+fold <- kfold(jan_latlon, k = 5)
+jan_test <- jan_latlon[fold == 1,]
+jan_train <- jan_latlon[fold != 1,]
+```
+
+```{r}
+jan_model <- maxent(fire_extended_jan, jan_latlon)
+```
+
+
+
+```{r}
+training_jan_count <- training_jan_count %>%
+  mutate(prob = n/nrow(n))
+
+fire_jan_n <- rasterize(training_jan_count[, c('lon', 'lat')], x, training_jan_count[, 'n'])
+
+fire_projected_jan_n <- projectRaster(fire_jan_n, crs = projection)
+
+fire_extended_jan_n <- extend(fire_projected_jan_n, ext, value = NA)
+
+plot(fire_extended_jan_n)
+```
+
+```{r}
+ palRaster <- colorNumeric(palette = c("yellow","Red"), domain = c(1,6), na.color = "transparent")
+
+leaflet() %>%
+  addProviderTiles("CartoDB")  %>%
+  setView(lng= 144.7852, lat = -36.3913 , zoom = 6.3)%>%
+  addLegend(pal = palRaster, values = c(1, 6),
+                          title = "Fire Probability")%>%
+                addRasterImage(fire_extended_jan_n,colors = palRaster,opacity = .4)
+```
+
+```{r}
+library(rJava)
+maxent()
+```
+
+
+
+```{r}
+coordinates(training_jan_count) <- ~ lon + lat
+```
+
+```{r}
+proj4string(training_jan_count) <- CRS("+proj=longlat +datum=WGS84") # set it to lat-long
+training_jan2 <- spTransform(training_jan_count, CRS("+proj=longlat +datum=WGS84"))
+```
+
+```{r}
+gridded(training_jan2) = TRUE
+```
+
+```{r}
+r <- raster(training_jan2)
+projection(r) <- CRS("+proj=longlat +datum=WGS84")
+```
+
+```{r}
+r
+```
+
+
+```{r}
+training_selected <- training %>%
+  select(month, day, wod, lon, lat, FOR_TYPE, COVER, HEIGHT, arf360, ase90, ase180, ase720, amaxt90, amaxt180, amaxt720, amint180, ws, aws_m12, aws_m24, log_dist_camp, log_dist_cfa, log_dist_road)
+```
+
+
+```{r}
+x <- raster(xmn = 141,
+            xmx = 150, 
+            ymn = -39,
+            ymx = -34,
+            res = 0.1, 
+            crs = "+proj=longlat +datum=WGS84")
+
+fire <- rasterize(training_selected[, c('lon', 'lat')], x, training_selected[, c('arf360', 'ws')])
+
+fire_projected <- projectRaster(fire, crs = projection)
+
+fire_extended <- extend(fire_projected, ext, value = NA)
+
+plot(fire_extended)
+```
+
+bikin satu". 
+
+
+# Occurrence dataset
+```{r}
+file <- read.csv("training.csv")
+```
+
+```{r}
+duplicate <- duplicated(file[c("lat", "lon")])
+file_unique <- file[!duplicate,]
+```
+
+```{r}
+coordinates(file_unique) <- ~lon + lat
+plot(fire_extended)
+plot(file_unique, add = TRUE)
+```
+
+# set up study area
+```{r}
+file_buff <- buffer(file_unique, 4)
+```
+```{r}
+studyArea <- crop(fire_extended, extent(file_buff))
+
+studyArea <- mask(studyArea, file_buff)
+```
+
+
+# selecting 10,000 random background points from the study area (https://github.com/shandongfx/workshop_maxent_R/blob/master/code/Appendix1_case_study.md)
+```{r}
+set.seed(2021)
+bg <- sampleRandom(x = studyArea,
+                   size = 8000,
+                   na.rm = TRUE,
+                   sp = TRUE)
+```
+
+
+# split occurrence data into training and test set 
+```{r}
+set.seed(2021)
+selected <- sample(1:nrow(file_unique), nrow(file_unique)*0.75)
+
+file_tr <- file_unique[selected, ]
+file_ts <- file_unique[-selected, ]
+```
+
+```{r}
+p <- extract(fire_extended, file_tr)
+```
+
+
+
+
+
+```{r}
+fire_extended
+```
+
+```{r}
+ palRaster <- colorNumeric(palette = c("yellow","Red"), domain = c(1,0), na.color = "transparent")
+
+leaflet() %>%
+  addProviderTiles("CartoDB")  %>%
+  setView(lng= 144.7852, lat = -36.3913 , zoom = 6.3)%>%
+  addLegend(pal = palRaster, values = c(1,0),
+                          title = "Fire Probability")%>%
+                addRasterImage(fire_extended,colors = palRaster,opacity = .4)
+```
+
+```{r}
+# occurrence dataset
+file_count <- file %>%
+  group_by(lon,lat) %>%
+  summarise(count = n())
+
+x <- raster(xmn = 141,
+            xmx = 150, 
+            ymn = -39,
+            ymx = -34,
+            res = 0.1, 
+            crs = "+proj=longlat +datum=WGS84")
+
+fire <- rasterize(file_count[, c('lon', 'lat')], x, file_count[, 'count'])
+
+
+plot(fire)
+
+```
+
+
+
+```{r}
+gridtemp
+```
+
+
+```{r}
+raster("training.csv")
+```

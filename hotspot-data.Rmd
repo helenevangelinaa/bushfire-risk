@@ -1,0 +1,19 @@
+---
+title: "testing data"
+author: "Helen Evangelina"
+date: "22/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+library(tmap)
+library(furrr)
+library(lubridate)
+library(raster)
+
+# enable parallel processing of output
+plan(multiprocess)
+```

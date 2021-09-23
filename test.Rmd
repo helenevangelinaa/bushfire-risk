@@ -1,0 +1,96 @@
+---
+title: "test"
+author: "Helen Evangelina"
+date: "15/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rNOMADS)
+library(rgdal)
+library(raster)
+```
+
+```{r}
+#env_file <- readGDAL("data/env.grib")
+```
+
+```{r}
+#env_file
+```
+
+
+```{r}
+#raster(env_file)
+```
+
+```{r}
+#plot(raster(env_file))
+```
+
+
+```{r}
+# set up projection parameter for use throughout script
+projection <- "+proj=longlat +datum=WGS84"
+
+# set up extent parameter 
+ext <- extent(141, 150, -39, -34)
+```
+
+```{r}
+x <- raster(xmn = 141,
+            xmx = 150, 
+            ymn = -39,
+            ymx = -34,
+            res = 0.2, 
+            crs = "+proj=longlat +datum=WGS84")
+
+abc <- rasterize(env_file[, c('lon', 'lat')], x, env_file[, 'temp'])
+
+fire_projected_jan <- projectRaster(fire_jan, crs = projection)
+
+fire_extended_jan <- extend(fire_projected_jan, ext, value = NA)
+
+plot(fire_extended_jan)
+```
+
+
+
+
+```{r}
+## random forest model (`final_model`)
+final_model <- readr::read_rds("data/Final_model.rds")
+```
+
+```{r}
+final_model
+```
+
+```{r}
+## random forest model (`final_model`)
+rf_model <- readr::read_rds("data/RF_best_features.rds")
+rf_model
+```
+
+```{r}
+## training data `predict_x`
+predict_x <- readr::read_csv("data/predict_x.csv")
+
+# Read in predict data
+predict_x <- predict_x %>% 
+  mutate(log_dist_cfa = log(dist_cfa),
+         log_dist_camp = log(dist_camp),
+         log_dist_road = log(dist_road))
+```
+
+
+```{r}
+## use random forest model; predict bushfire cause
+predict_x <- predict_x %>% 
+  # use RF model; predict bushfire cause 
+  mutate(cause = predict(final_model,
+                         newdata = predict_x),
+         # create month variable
+         month = factor(lubridate::month(time)))
+```

@@ -1,0 +1,244 @@
+---
+title: "simple-EDA"
+author: "Helen Evangelina"
+date: "28/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+training <- read_csv("data/training.csv")
+training <- training %>%
+  filter(!CAUSE %in% c("BURNING BUILDING",
+                       "WASTE DISPOSAL, INDUSTRIAL, SAWMILL, TIP",
+                       "WASTE DISPOSAL, DOMESTIC",
+                       "BURNING VEHICLE, MACHINE",
+                       "BURNING BUILDING")) %>%
+  filter(new_cause != "other") %>%
+  filter(new_cause != "relight")
+training <- dplyr::select(training, -c(EVENTID:FIRE_NUM), -id, -CAUSE, -FOR_CODE)
+training <- training %>% 
+  mutate(year = factor(lubridate::year(FIRE_START)),
+         month = factor(lubridate::month(FIRE_START)),
+                        # levels = c(10,11,12,1,2,3),
+         day = factor(lubridate::day(FIRE_START), 
+                      levels = c(1:31)),
+         wod = factor(lubridate::wday(FIRE_START), 
+                      levels = c(1:7)))
+# training <- training %>% 
+#   filter(month %in% c(10,11,12,1,2,3))
+training <- na.omit(training)
+training <- training %>% 
+  mutate(new_cause = ifelse(test = new_cause == "accidental_human",
+                            yes = "accident",
+                            no = new_cause)) %>%
+  mutate(new_cause = ifelse(test = new_cause == "burning_off_human", 
+                            yes = "burning_off", 
+                            no = new_cause)) %>%
+  mutate(new_cause = factor(new_cause)) %>%
+  mutate(FOR_TYPE = factor(FOR_TYPE))
+training <- na.omit(training)
+training <- training %>% 
+  mutate(log_dist_cfa = log(dist_cfa),
+         log_dist_camp = log(dist_camp),
+         log_dist_road = log(dist_road),
+         COVER = factor(COVER),
+         HEIGHT = factor(HEIGHT))
+training <- training %>% 
+  rename(cause = new_cause)
+training <- mutate(training,
+                   cause = forcats::fct_relevel(cause,
+                                                "lightning",
+                                                "accident",
+                                                "arson",
+                                                "burning_off"))
+training <- na.omit(training)
+training <- training %>% 
+  dplyr::select(-dist_road, -dist_cfa, -dist_camp, -FIRE_START)
+```
+
+```{r}
+# Read in predict data
+predict_x <- readr::read_csv("data/predict_x.csv")
+predict_x <- predict_x %>% 
+  mutate(log_dist_cfa = log(dist_cfa),
+         log_dist_camp = log(dist_camp),
+         log_dist_road = log(dist_road))
+```
+
+# simple EDA
+## for the training data (less reliable)
+## this is to see if vegetation category has an effect on the fire risk
+```{r}
+FOR_cat_COUNT <- training %>%
+  group_by(FOR_CAT, year)%>%
+  summarise(n = n())
+
+FOR_cat_COUNT %>%
+  ggplot(aes(x = reorder(FOR_CAT, -n),
+             y = n)) +
+  geom_boxplot() +
+  xlab("FOR_CAT") +
+  ylab("Count") +
+  theme_bw() +
+  ggtitle("Training data")
+```
+
+
+
+```{r}
+# Read in predict data
+predict_x <- readr::read_csv("data/predict_x.csv")
+predict_x <- predict_x %>% 
+  mutate(log_dist_cfa = log(dist_cfa),
+         log_dist_camp = log(dist_camp),
+         log_dist_road = log(dist_road))
+```
+
+## on the "predict" dataset - from hotspot data (more reliable)
+```{r}
+FOR_cat_COUNT2 <- predict_x %>%
+  group_by(FOR_CAT, year)%>% 
+  na.omit() %>%
+  summarise(n = n())
+
+FOR_cat_COUNT2 %>%
+  ggplot(aes(x = reorder(FOR_CAT, -n),
+             y = n)) +
+  geom_boxplot() +
+  xlab("FOR_CAT") +
+  ylab("Count") +
+  theme_bw() +
+  ggtitle("Predict data")
+```
+
+Conclusion: 
+The "training" and "predict" data show quite different results. Native forest is the category in where most fires happened in both training and predict dataset, followed by non-forest, commercial plantation and other forest. (THE ORDER ARE THE SAME). Just, in 2019-2020 there is a lot of fires in non-forest. 
+
+--> Vegetation type has an impact
+
+## look at other variables
+## COVER
+```{r}
+#training data
+FOREST_COUNT <- training %>%
+  group_by(FOREST, year)%>% 
+  na.omit() %>%
+  summarise(n = n())
+
+FOREST_COUNT %>%
+  ggplot(aes(x = reorder(FOREST, -n),
+             y = n)) +
+  geom_boxplot() +
+  xlab("FOREST") +
+  ylab("Count") +
+  theme_bw() +
+  ggtitle("Training data")
+
+```
+
+```{r}
+#predict data
+FOREST_COUNT2 <- predict_x %>%
+  group_by(FOREST, year)%>% 
+  na.omit() %>%
+  summarise(n = n())
+
+FOREST_COUNT2 %>%
+  ggplot(aes(x = reorder(FOREST, -n),
+             y = n)) +
+  geom_boxplot() +
+  xlab("FOREST") +
+  ylab("Count") +
+  theme_bw() +
+  ggtitle("Predict data")
+
+```
+
+Conc: forest has an effect --> forest areas are more likely to have fires. Diff: the gap in predict dataset is larger. 
+
+## COVER
+```{r}
+#training data
+COVER_COUNT <- training %>%
+  group_by(COVER, year)%>% 
+  na.omit() %>%
+  summarise(n = n())
+
+COVER_COUNT %>%
+  ggplot(aes(x = reorder(COVER, -n),
+             y = n)) +
+  geom_boxplot() +
+  xlab("COVER") +
+  ylab("Count") +
+  theme_bw() +
+  ggtitle("Training data")
+
+```
+
+```{r}
+# PREDICT data
+COVER_COUNT2 <- predict_x %>%
+  group_by(COVER, year)%>% 
+  na.omit() %>%
+  summarise(n = n())
+
+COVER_COUNT2 %>%
+  ggplot(aes(x = reorder(COVER, -n),
+             y = n)) +
+  geom_boxplot() +
+  xlab("COVER") +
+  ylab("Count") +
+  theme_bw() +
+  ggtitle("Predict data")
+
+```
+
+Conc: same order as well but predict has higher gap. 
+also, one outlier in the training data for 2.
+
+## HEIGHT
+```{r}
+#training data
+HEIGHT_COUNT <- training %>%
+  group_by(HEIGHT, year)%>% 
+  na.omit() %>%
+  summarise(n = n())
+
+HEIGHT_COUNT %>%
+  ggplot(aes(x = reorder(HEIGHT, -n),
+             y = n)) +
+  geom_boxplot() +
+  xlab("HEIGHT") +
+  ylab("Count") +
+  theme_bw() +
+  ggtitle("Training data")
+
+```
+
+```{r}
+# predict data
+HEIGHT_COUNT2 <- predict_x %>%
+  group_by(HEIGHT, year)%>% 
+  na.omit() %>%
+  summarise(n = n())
+
+HEIGHT_COUNT2 %>%
+  ggplot(aes(x = reorder(HEIGHT, -n),
+             y = n)) +
+  geom_boxplot() +
+  xlab("HEIGHT") +
+  ylab("Count") +
+  theme_bw() +
+  ggtitle("predict data")
+
+```
+same conc. 
+
+
+
+

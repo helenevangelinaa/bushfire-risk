@@ -333,10 +333,45 @@ tmap::tm_shape(ignition_rules_sf_values) +
   tm_borders(lwd = 3)
 ```
 
+## Set values to each grid cell
 
-### Set values to each grid cell
+set values to ignition grid cell
+  - `fire_count`: count the number of fire ignitions; per grid 
+  - `fire_prop`: # ignitions in grid cell / # total no. of ignitions
+* note: good to separate satellite data (`predict_x`) with historical data (`training_pred`)
+  - so; able; parse them out; when examining grid 
+  
+```{r}
+# ========== convert spdf to SpatialPoints; to be able; use `rasterize` (count; no. of pts.; in each raster cell)
+# ---------- predict_x *satellite data
+cause_spdf <- as(cause_sf, Class = "Spatial")
+cause_sp <- as(cause_spdf, "SpatialPoints")
+# ---------- training_pred *historical data
+# will filter `sf` object; before turning int `spdf` object in app  
+# e.g. filter to year 2000 only (user-specification!)
+cause_training_sf <- cause_training_sf %>% 
+  filter(year == 2000)
+cause_training_spdf <- as(cause_training_sf, Class = "Spatial")
+cause_training_sp <- as(cause_training_spdf, "SpatialPoints")
+```
 
-@@ -382,19 +403,22 @@ ignition_rasterize_training <- raster::rasterize(x = cause_training_sp,# `Spatia
+
+NOTE: BEFORE creating `spdf` object; is where; filter to `year` etc. (user specifications)
+```{r}
+# --- count the number of points in each raster cell; via `raster::rasterize`
+# predict_x *satellite data 
+ignition_rasterize <- raster::rasterize(x = cause_sp,# `SpatialPoints` object
+                                        y = vic_raster_crop, # `Raster` object 
+                                        fun = "count")
+
+ignition_rasterize_training <- raster::rasterize(x = cause_training_sp,# `SpatialPoints` object
+                                                 y = vic_raster_crop, # `Raster` object 
+                                                 fun = "count") 
+# ----- compute; in each grid cell
+# • `fire_count`: no. of points
+# • `fire_prop`: no. of points / total points (bushfire ignitions)
+# predict_x *satellite data 
+library(tidyr)
 ignition_raster_values <- raster::getValues(ignition_rasterize) %>% # extract count values
   tibble(fire_count = .) %>% 
   replace_na(list(fire_count = 0)) %>% # replace NA with 0 (no fire ignitions) 
@@ -357,9 +392,16 @@ ignition_raster_values_training <- raster::getValues(ignition_rasterize_training
 #  
 vic_raster_crop_values <- raster::setValues(x = vic_raster_crop,
                                             values = ignition_raster_values)
-@@ -411,6 +435,60 @@ vic_raster_crop_values_training %>%
+vic_raster_crop_values_training <- raster::setValues(x = vic_raster_crop,
+                                                     values = ignition_raster_values_training)
+# --- plot spatial grid results
+vic_raster_crop_values %>% 
+  plot()
+vic_raster_crop_values_training %>% 
+  plot()
+```
 
-> `training` (historical data) & `predict_x` (satellite data); very different in terms of where fire ignited 
+`training` (historical data) & `predict_x` (satellite data); very different in terms of where fire ignited 
 ```{r}
 # --- side-by-side dot plot
 vic_raster_crop_values_df <- vic_raster_crop_values %>% 

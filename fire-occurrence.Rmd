@@ -1039,8 +1039,20 @@ ggplotly()
 ```
 some cells have different proportions where some are high for the hotspot and low for training, and otherwise.
 
+## simulation 
+we wanna see the probability of fire occurring in each cell. 
+to account for the uncertainty and variability of the fire occurrence proportions per each cell, we use simulation technique. 
+```{r}
+
+```
 
 
+
+
+
+
+
+## other methods
 ```{r}
 library(ggthemes)
 library(rnaturalearth)

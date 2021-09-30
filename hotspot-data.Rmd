@@ -5,15 +5,207 @@ date: "22/09/2021"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+
+```{r message=FALSE, warning=FALSE}
 library(tidyverse)
 library(sf)
-library(tmap)
 library(furrr)
 library(lubridate)
-library(raster)
+library(rnaturalearth)
+library(igraph)
+```
 
-# enable parallel processing of output
-plan(multiprocess)
+```{r}
+# After you have downloaded your files
+# Load all monthly files from the monthly directory and merge  
+fls = list.files("monthly/",full.names = TRUE)
+all = map(fls,read_csv,quote="'")
+data = bind_rows(all)
+
+# Load all daily files from the daily directory and merge
+fls = list.files("daily/",full.names = TRUE)
+all = map(fls,read_csv,quote="'")
+data2 = bind_rows(all)
+
+# Combine monthly and daily files - the format is the same
+data = bind_rows(data,data2)
+
+# Himawari-8 data is the entre disk at longitude 140.7E
+# Here we define an extent for Australia to crop it to
+ex = extent(c(xmin=-112,xmax=155,ymin=-44,ymax=-10))
+
+
+# Convert data to a spatial object
+data = st_as_sf(data,crs=4326,wkt="pixel")
+
+# Crop to Australia
+data = st_crop(data,ex)
+
+# Simplify to fields of interest
+data=dplyr::select(data,"#obstime",lon,lat,viewzenang,viewazang,pixwid,pixlen,fire_idx,sunglint,firepower,freq,fQC)
+names(data)[1]="ObsTime"
+
+# Generate fields for year, month, day, hour
+data = data %>% mutate(year = year(ObsTime),day = day(ObsTime),month = month(ObsTime), hour=hour(ObsTime))
+
+# Strip the geometry at this point, for simpler processing.
+st_geometry(data) = NULL
+```
+
+
+
+```{r 'define_read_hotspot'}
+read_hotspot <- function(directory = "data/hotspot", from = '20150701', to = '20150731'){
+  ### include from, exclude to
+  
+  fls = list.files(directory, full.names = TRUE)
+  fls_short = list.files("data/hotspot", full.names = FALSE)
+  fls_filter = (fls_short > paste('H08', from, sep = '_')) & (fls_short < paste('H08', to, sep = '_'))
+  fls = fls[fls_filter]
+  all = map(fls, read_csv, quote="'")
+  d = bind_rows(all)
+  return(d)
+  
+}
+```
+
+```{r}
+directory = "data/hotspot"
+fls = list.files(directory, full.names = TRUE)
+fls
+```
+
+```{r}
+directory = "/monthly/"
+fls = list.files(directory, full.names = TRUE)
+fls
+```
+
+
+```{r}
+fls_short = list.files("data/hotspot", full.names = FALSE)
+fls_short
+```
+```{r}
+fls_filter = (fls_short > paste('H08', "20150701", sep = '_')) & (fls_short < paste('H08', "20150732", sep = '_'))
+
+fls_filter
+```
+
+```{r}
+fls
+all = map(fls, read_csv)
+all
+```
+
+```{r message=FALSE, warning=FALSE}
+hotspots = read_hotspot(from = "20150701", to ="20150731")
+
+hotspots
+```
+
+```{r}
+fls = list.files("data/hotspot/./monthly/",full.names = TRUE)
+all = map(fls,read_csv,quote="'")
+data = bind_rows(all)
+fls
+```
+
+W####
+```{r}
+pre <- list.files("data/hotspot", "daily", recursive=TRUE, full.names=TRUE, include.dirs=TRUE)
+pre
+
+fls <- list.files(pre, full.names = TRUE)
+fls
+
+all <- map(fls, read_csv)
+combined_data <- bind_rows(all)
+
+combined_data
+```
+
+```{r}
+# filter au
+data_au <- combined_data %>%
+  filter(between(lon, 112, 155)) %>% 
+  filter(between(lat, -44, -10))
+data_au
+```
+
+```{r}
+au_map = ne_states(country = 'Australia', returnclass = 'sf') #get au map
+data_au = data_au %>%
+  filter(firepower > 100)
+```
+
+```{r}
+data_au = st_as_sf(x = data_au, coords = c('lon','lat'))
+st_crs(data_au) = 4326
+
+data_au
+```
+
+```{r}
+data_au <- data_au %>%
+  rename(obstime = `#obstime`)
+data_au
+```
+
+
+```{r}
+tab = st_intersects(au_map$geometry, data_au$geometry)
+data_au$state = ''
+for (i in seq(1,nrow(au_map))){
+  
+  data_au$state[tab[[i]]] = au_map$name[i]
+  
+}
+
+tab
+```
+
+```{r}
+unidentified_point = data_au[data_au$state == '',]
+tab2 = st_nearest_feature(unidentified_point$geometry, au_map$geometry)
+data_au$state[data_au$state == ''] = au_map$name[tab2]
+
+data_au
+```
+
+```{r}
+data_au$obstime <- ymd_hms(data_au$obstime)
+```
+
+
+```{r}
+data_au$year = year(data_au$obstime)
+data_au$month = month(data_au$obstime)
+data_au$day = day(data_au$obstime)
+data_au$week = week(data_au$obstime)
+data_au$hour = hour(data_au$obstime)
+```
+
+```{r}
+# filter VIC
+data_VIC = data_au %>%
+  filter(state == "Victoria")
+data_VIC
+```
+
+
+```{r}
+# assign hour index for data
+data_VIC$hour_id = data_VIC %>%
+  group_indices(year,month,day,hour)
+data_VIC$obs_id = 1:nrow(data_VIC)
+temp_fire_id = c()
+temp_obs_id = c()
+
+data_VIC
+```
+
+```{r}
+first_hour = filter(data_VIC, hour_id == 1) %>%
+  select(obs_id, year, month, day, hour_id, geometry)
 ```
